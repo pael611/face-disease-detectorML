@@ -1,271 +1,348 @@
-# Skin Condition Classification (MobileNetV2) + Skincare Recommendation
+# Dokumentasi Lengkap Pembuatan Model ML: Skin Condition Classification (MobileNetV2)
 
-Repository ini berisi pipeline end-to-end untuk:
+Dokumen ini merangkum **end-to-end proses pembuatan model Machine Learning/Deep Learning** untuk klasifikasi kondisi kulit wajah (6 kelas) pada proyek ini, meliputi:
 
-1) training model klasifikasi kondisi kulit wajah (6 kelas) menggunakan Transfer Learning MobileNetV2 (TensorFlow/Keras),
-| **Blackheads** | Exfoliating Toner, AHA/BHA Serum, Clay Mask |
-| **Dark Spots** | Brightening Toner, Vitamin C Serum, Whitening Essence |
-| **Normal Skin** | Cleanser, Moisturizer, Sunscreen |
-| **Oily Skin** | Oil-Free Cleanser, Mattifying Moisturizer, Lightweight Sunscreen |
-| **Wrinkles** | Retinol Toner, Anti-aging Serum, Vitamin C Serum |
+- Detail **pengambilan & penyiapan data**
+- Detail **preprocessing & augmentasi**
+- Detail **arsitektur model**
+- Detail **strategi training** (two-stage training)
+- Detail **evaluasi** (confusion matrix + classification report)
+- Detail **ekspor model** (Keras `.h5` dan ONNX)
 
-### Fungsi Rekomendasi
-
-```python
-def show_recommendations(predicted_label):
-    df = pd.read_csv('skincare_product/treatment.csv')
-    produk = df[df['Tags'].str.lower() == predicted_label.lower()]
-    
-    print(f"\nRekomendasi produk untuk '{predicted_label}':")
-    for _, row in produk.iterrows():
-        print(f"- {row['Brand']} | {row['Product Name']} | {row['Price']}")
-        print(f"  Link: {row['Links']}")
-```
+> Referensi implementasi utama: `prediction_model.py` (versi notebook juga tersedia di `prediction_model.ipynb`).
 
 ---
 
-## 📂 Struktur Repository
+## 1. Ringkasan Proyek
+
+### 1.1 Tujuan
+
+Membangun model *image classification* untuk mengklasifikasikan **kondisi kulit wajah** dari gambar menjadi 6 kelas:
+
+1. Acne
+2. Blackheads
+3. Dark Spots
+4. Normal Skin
+5. Oily Skin
+6. Wrinkles
+
+### 1.2 Output Sistem
+
+- **Prediksi label** + **confidence** (probabilitas maksimum)
+- Integrasi tambahan (di repo): **rekomendasi produk skincare** berdasarkan label (menggunakan `skincare_product/treatment.csv`).
+
+---
+
+## 2. Pengambilan Data & Struktur Dataset
+
+### 2.1 Struktur Folder Dataset
+
+Dataset disusun dalam format *folder-per-class*:
 
 ```
 PMLDI/
-│
-├── 📊 Model Files
-│   ├── best_skin_model.h5              # Model Keras (checkpoint terbaik)
-│   └── best_skin_model.onnx            # Model ONNX untuk deployment
-│
-├── 📈 Evaluation Results
-│   ├── classification_report.txt       # Laporan metrik evaluasi
-│   └── confusion_matrix.png            # Visualisasi confusion matrix
-│
-├── 📓 Code Files
-│   ├── prediction_model.py             # Script utama training & inference
-│   ├── prediction_model.ipynb          # Versi Jupyter Notebook
-│   └── prediction_model_converted.ipynb # Notebook hasil konversi
-│
-├── 📁 Dataset
-│   └── dataset/
-│       ├── Acne/
-│       ├── Blackheads/
-│       ├── Dark Spots/
-│       ├── Normal Skin/
-│       ├── Oily Skin/
-│       └── Wrinkles/
-│
-├── 🛍️ Product Recommendations
-│   └── skincare_product/
-│       ├── treatment.csv               # Database produk (CSV)
-│       ├── treatment.json              # Database produk (JSON)
-│       └── gambar_produk/              # Gambar produk
-│
-├── 📝 Documentation
-│   ├── README.md                       # Dokumentasi proyek
-│   └── requirments.txt                 # Dependencies Python
-│
-└── 🖼️ Test Images (optional)
-    └── *.jpg                           # Gambar untuk testing
+  dataset/
+    Acne/
+    Blackheads/
+    Dark Spots/
+    Normal Skin/
+    Oily Skin/
+    Wrinkles/
 ```
+
+Dengan format gambar yang didukung dan di-scan oleh pipeline:
+
+- `.jpg`, `.jpeg`, `.png`, `.bmp`, `.gif`
+
+### 2.2 Catatan Sumber Data
+
+Di dalam repo ini **belum ada catatan eksplisit** mengenai sumber dataset eksternal (misalnya tautan Kaggle/Google Drive/roboflow) pada kode maupun README.
+
+Agar dokumentasi ini menjadi “lengkap” versi final, bagian yang bisa Anda lengkapi (opsional, tapi disarankan):
+
+- Sumber dataset (URL / nama dataset)
+- Metode pengumpulan (download dataset publik / kurasi manual / scraping)
+- Aturan lisensi dataset & atribusi
+
+### 2.3 Pedoman Kurasi Data (praktik yang digunakan/umum)
+
+Saat menyiapkan data untuk klasifikasi kondisi kulit, praktik yang direkomendasikan:
+
+- Memastikan gambar dominan menampilkan area wajah/kulit
+- Menghindari foto blur ekstrem, over/under-exposure ekstrem
+- Menjaga label konsisten (contoh: “Dark Spots” untuk hiperpigmentasi, bukan jerawat)
+- Menghapus duplikasi (dupe images) bila ada
 
 ---
 
-## 📦 Requirements & Instalasi
+## 3. Split Data (Train/Validation)
 
-### System Requirements
-- Python 3.8+ (Recommended: Python 3.10)
-- GPU dengan CUDA support (optional, untuk training lebih cepat)
-- Minimum 8GB RAM
+### 3.1 Split Stratified 80/20
 
-### Instalasi Dependencies
+Pipeline melakukan split **stratified** sehingga proporsi kelas di train dan validation relatif terjaga:
 
-```cmd
+- `test_size=0.2` (validation 20%)
+- `random_state=42`
+- `stratify=labels`
+
+Implementasi: `sklearn.model_selection.train_test_split`.
+
+### 3.2 Alasan Stratified Split
+
+Karena dataset multi-kelas sering tidak seimbang (class imbalance), split stratified membantu:
+
+- Mencegah kelas minoritas “hilang” dari validation
+- Membuat evaluasi lebih representatif
+
+---
+
+## 4. Preprocessing Gambar
+
+### 4.1 Decoder dan Normalisasi
+
+Pipeline preprocessing utama memakai **PIL** untuk decoding agar lebih robust terhadap variasi file gambar:
+
+- `ImageOps.exif_transpose(img)` untuk memperbaiki orientasi dari metadata EXIF
+- Konversi ke RGB (`img.convert('RGB')`)
+- Resize menjadi square menggunakan `ImageOps.pad` (preserve aspect ratio + padding)
+- Normalisasi menggunakan `tf.keras.applications.mobilenet_v2.preprocess_input`
+
+### 4.2 (Opsional) Auto Face Crop
+
+Untuk mengurangi noise background, tersedia opsi **auto-crop ke wajah** menggunakan **OpenCV Haar Cascade**:
+
+- `ENABLE_AUTO_FACE_CROP = True`
+- Memilih bounding box wajah terbesar
+- Menambahkan margin crop (`FACE_CROP_MARGIN = 0.25`)
+
+Jika OpenCV/face detection gagal, pipeline **fallback** ke gambar original (tidak crop) sehingga proses training tetap berjalan.
+
+### 4.3 Alasan Preprocessing Ini
+
+- MobileNetV2 expect input yang dinormalisasi via `preprocess_input`
+- Crop wajah membantu fokus model ke area relevan (kulit wajah), mengurangi bias dari latar
+
+---
+
+## 5. Augmentasi Data
+
+Augmentasi dilakukan pada training pipeline (tf.data) menggunakan layer Keras preprocessing:
+
+- `RandomFlip('horizontal')`
+- `RandomRotation(0.03)`
+- `RandomTranslation(0.03, 0.03)`
+- `RandomZoom((-0.05, 0.05), (-0.05, 0.05))`
+
+> Augmentasi ini membantu generalisasi model terhadap variasi pose ringan, framing, dan skala.
+
+Catatan:
+
+- Validation dataset **tidak** diberi augmentasi.
+
+---
+
+## 6. Strategi Mengatasi Class Imbalance
+
+Pipeline menggunakan **dua pendekatan**:
+
+### 6.1 Class Weight (Balanced)
+
+Dihitung menggunakan:
+
+- `sklearn.utils.class_weight.compute_class_weight(class_weight='balanced', ...)`
+
+Namun, pada implementasi training final, strategi yang dominan adalah oversampling via tf.data (lihat 6.2). Class weights tetap berguna untuk analisis distribusi kelas.
+
+### 6.2 Oversampling dengan tf.data
+
+Untuk menyeimbangkan jumlah sampel per kelas saat training:
+
+1. Membuat dataset per kelas (masing-masing di-`repeat()`)
+2. Menggabungkan dengan `tf.data.experimental.sample_from_datasets` menggunakan bobot sama untuk setiap kelas
+
+Efeknya:
+
+- Setiap batch cenderung memiliki distribusi kelas lebih seimbang
+- Mengurangi risiko model bias ke kelas mayoritas
+
+---
+
+## 7. Arsitektur Model
+
+### 7.1 Backbone: MobileNetV2 (Transfer Learning)
+
+Backbone menggunakan:
+
+- `MobileNetV2(include_top=False, weights='imagenet')`
+- Input shape dibiarkan fleksibel `(None, None, 3)` pada definisi backbone
+
+### 7.2 Classification Head
+
+Head yang ditambahkan di atas backbone:
+
+1. `GlobalAveragePooling2D()`
+2. `Dense(128, activation='relu')`
+3. `Dropout(0.3)`
+4. `Dense(6, activation='softmax')`
+
+### 7.3 Kenapa MobileNetV2?
+
+- Ringan (lebih cocok untuk deployment web/mobile)
+- Performa bagus untuk image classification dengan transfer learning
+- Mudah diekspor ke ONNX
+
+---
+
+## 8. Strategi Training (Two-Stage Training)
+
+Pipeline training dilakukan dalam **2 tahap** untuk stabilitas dan menjaga detail:
+
+### 8.1 Stage 1 — Warmup (224×224)
+
+Tujuan: melatih classifier head terlebih dahulu dengan backbone frozen.
+
+Konfigurasi utama:
+
+- Input size: `224×224`
+- Batch size: `16`
+- Backbone: `trainable = False`
+- Optimizer: Adam, `lr = 1e-4`
+- Epoch: `6`
+- Callback:
+  - EarlyStopping (patience 3, restore_best_weights)
+  - ModelCheckpoint → `best_skin_model_stage1.h5` (monitor `val_accuracy`)
+
+### 8.2 Stage 2 — Fine-tuning (320×320)
+
+Tujuan: meningkatkan performa dengan resolusi lebih besar dan fine-tuning backbone.
+
+Konfigurasi utama:
+
+- Input size: `320×320`
+- Batch size: `8`
+- Backbone: `trainable = True`
+  - Layer BatchNorm tetap di-freeze (lebih stabil saat fine-tuning)
+- Optimizer: Adam, `lr = 1e-5`
+- Epoch max: `20`
+- Callback:
+  - EarlyStopping (monitor `val_loss`, patience 10, restore_best_weights)
+  - ReduceLROnPlateau (factor 0.2, patience 5, min_lr 1e-6)
+  - ModelCheckpoint → `best_skin_model.h5` (monitor `val_accuracy`, save_best_only)
+
+---
+
+## 9. Evaluasi Model
+
+Evaluasi dilakukan pada validation set hasil split 80/20.
+
+### 9.1 Confusion Matrix
+
+- Confusion matrix dihitung dengan `sklearn.metrics.confusion_matrix`
+- Disimpan sebagai gambar: `confusion_matrix.png`
+
+Gunakan ini di Markdown (sudah disediakan):
+
+![Confusion Matrix (Validation)](confusion_matrix.png)
+
+### 9.2 Classification Report
+
+Classification report disimpan ke file: `classification_report.txt`.
+
+Isi report (hasil terakhir yang tersimpan):
+
+```text
+              precision    recall  f1-score   support
+
+        Acne     0.7826    0.9231    0.8471        39
+  Blackheads     0.9231    0.9000    0.9114        40
+  Dark Spots     1.0000    0.6341    0.7761        41
+ Normal Skin     0.7419    0.8519    0.7931        27
+   Oily Skin     0.8000    0.8000    0.8000        30
+    Wrinkles     0.9153    1.0000    0.9558        54
+
+    accuracy                         0.8615       231
+   macro avg     0.8605    0.8515    0.8472       231
+weighted avg     0.8740    0.8615    0.8586       231
+```
+
+Interpretasi singkat:
+
+- Akurasi validasi: **0.8615**
+- Kelas **Dark Spots** punya precision tinggi tetapi recall lebih rendah → indikasi cukup banyak false negative untuk kelas ini.
+- Kelas **Wrinkles** menunjukkan recall sangat tinggi.
+
+---
+
+## 10. Penyimpanan & Ekspor Model
+
+### 10.1 Model Keras (.h5)
+
+- Checkpoint terbaik Stage 2: `best_skin_model.h5`
+- Model final (opsional): `final_skin_model.h5`
+
+### 10.2 Ekspor ke ONNX
+
+Ekspor dilakukan dari model checkpoint terbaik (`best_skin_model.h5`) agar sesuai hasil evaluasi terbaik.
+
+- Output ONNX: `best_skin_model_320.onnx`
+- Input signature fixed: `[None, 320, 320, 3]` float32
+- Opset: `15`
+
+---
+
+## 11. Inference (Prediksi) & Rekomendasi Produk
+
+### 11.1 Prediksi 1 Gambar
+
+Pipeline prediksi:
+
+1. Load gambar
+2. EXIF transpose + convert RGB
+3. (Opsional) face-crop
+4. Pad/resize ke 320×320
+5. `preprocess_input`
+6. `model.predict` → softmax
+7. Ambil argmax + confidence
+
+Fungsi yang tersedia:
+
+- `predict_skin_condition(model, img_path, categories)`
+
+### 11.2 Rekomendasi Produk
+
+Rekomendasi diambil dari:
+
+- `skincare_product/treatment.csv`
+
+Fungsi:
+
+- `show_recommendations(predicted_label)`
+
+---
+
+## 12. Reproducibility (Cara Menjalankan Ulang)
+
+### 12.1 Instalasi Dependencies
+
+Repo menyediakan file dependencies: `requirments.txt` (catatan: nama file “requirements” tertulis “requirments”).
+
+```bash
 pip install -r requirments.txt
 ```
 
-### Library Utama
+### 12.2 Training + Evaluasi
 
-| Library | Versi | Fungsi |
-|---------|-------|--------|
-| TensorFlow | 2.x | Deep Learning framework |
-| Keras | (included) | High-level neural network API |
-| NumPy | 1.x | Numerical computing |
-| Pandas | 1.x/2.x | Data manipulation |
-| Matplotlib | 3.x | Visualisasi |
-| Seaborn | 0.x | Statistical visualization |
-| Scikit-learn | 1.x | Machine learning utilities |
-| Pillow (PIL) | 9.x/10.x | Image processing |
-| tf2onnx | 1.x | Konversi TensorFlow ke ONNX |
-| ONNX | 1.x | Open Neural Network Exchange |
+Jalankan:
 
----
-
-## 🚀 Cara Penggunaan
-
-### 1. Training Model
-
-**Via Python Script:**
-```cmd
+```bash
 python prediction_model.py
 ```
 
-**Via Jupyter Notebook:**
-1. Buka `prediction_model.ipynb`
-2. Jalankan semua cell secara berurutan
+Output yang dihasilkan/diupdate:
 
-### 2. Prediksi Single Image
-
-```python
-import tensorflow as tf
-from tensorflow.keras.preprocessing import image
-from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
-import numpy as np
-
-# Load model
-model = tf.keras.models.load_model('best_skin_model.h5')
-categories = ['Acne', 'Blackheads', 'Dark Spots', 'Normal Skin', 'Oily Skin', 'Wrinkles']
-
-# Load dan preprocess gambar
-img_path = 'path/to/test_image.jpg'
-img = image.load_img(img_path, target_size=(224, 224))
-img_array = image.img_to_array(img)
-img_array = preprocess_input(img_array)
-img_array = tf.expand_dims(img_array, axis=0)
-
-# Prediksi
-predictions = model.predict(img_array)
-predicted_class = tf.argmax(predictions, axis=1).numpy()[0]
-confidence = float(np.max(predictions)) * 100
-
-print(f"Kondisi Kulit: {categories[predicted_class]}")
-print(f"Confidence: {confidence:.2f}%")
-```
-
-### 3. Prediksi dengan Rekomendasi Produk
-
-```python
-from prediction_model import predict_skin_condition, show_recommendations, categories
-
-model = tf.keras.models.load_model('best_skin_model.h5')
-img_path = 'test_image.jpg'
-
-# Prediksi
-pred_idx, pred_name, conf = predict_skin_condition(model, img_path, categories)
-print(f"Prediksi: {pred_name} ({conf:.2f}%)")
-
-# Tampilkan rekomendasi produk
-show_recommendations(pred_name)
-```
-
----
-
-## 🔄 Ekspor Model ke ONNX
-
-Model diekspor ke format **ONNX (Open Neural Network Exchange)** untuk deployment lintas platform (web, mobile, embedded systems).
-
-```python
-import tf2onnx
-import onnx
-import tensorflow as tf
-
-# Load model Keras
-model = tf.keras.models.load_model('best_skin_model.h5')
-
-# Definisikan input signature
-spec = (tf.TensorSpec((None, 224, 224, 3), tf.float32, name="input_1"),)
-
-# Konversi ke ONNX
-output_path = 'best_skin_model.onnx'
-model_proto, _ = tf2onnx.convert.from_keras(model, input_signature=spec, output_path=output_path)
-onnx.save_model(model_proto, output_path)
-
-print(f"Model berhasil diekspor ke {output_path}")
-```
-
-### Penggunaan Model ONNX
-
-```python
-import onnxruntime as ort
-import numpy as np
-
-# Load ONNX model
-session = ort.InferenceSession('best_skin_model.onnx')
-
-# Prepare input
-input_name = session.get_inputs()[0].name
-input_data = np.random.randn(1, 224, 224, 3).astype(np.float32)
-
-# Run inference
-result = session.run(None, {input_name: input_data})
-```
-
----
-
-## 📝 Kesimpulan
-
-### Pencapaian Proyek
-
-1. **Model Deep Learning** berhasil dikembangkan untuk klasifikasi 6 kondisi kulit wajah
-2. **Akurasi 79.95%** dicapai menggunakan Transfer Learning MobileNetV2
-3. **Teknik Oversampling** berhasil mengatasi masalah class imbalance
-4. **Sistem Rekomendasi** terintegrasi dengan database 67 produk skincare
-5. **Model ONNX** tersedia untuk deployment lintas platform
-
-### Kelebihan Sistem
-
-- ✅ Menggunakan Transfer Learning untuk efisiensi training
-- ✅ Robust image decoding dengan Pillow
-- ✅ Balanced training dengan oversampling
-- ✅ Multiple callbacks untuk optimasi training
-- ✅ Cross-platform deployment dengan ONNX
-- ✅ Integrated product recommendation
-
-### Keterbatasan
-
-- ⚠️ Akurasi pada kelas Normal Skin dan Oily Skin masih perlu ditingkatkan
-- ⚠️ Dataset terbatas pada 6 kategori kondisi kulit
-- ⚠️ Belum mendukung deteksi multiple conditions pada satu gambar
-
----
-
-## 🔮 Pengembangan Selanjutnya
-
-1. **Fine-tuning Base Model**: Unfreeze beberapa layer teratas MobileNetV2
-2. **Augmentasi Tambahan**: Eksperimen dengan teknik augmentasi lanjutan
-3. **Ensemble Methods**: Kombinasi beberapa model untuk meningkatkan akurasi
-4. **Web/Mobile App**: Deployment sebagai aplikasi dengan antarmuka pengguna
-5. **Real-time Detection**: Implementasi deteksi kondisi kulit secara real-time
-6. **Expanded Dataset**: Penambahan lebih banyak data untuk kelas dengan performa rendah
-7. **Multi-label Classification**: Mendukung deteksi multiple conditions
-
----
-
-## 📚 Referensi
-
-1. Sandler, M., Howard, A., Zhu, M., Zhmoginov, A., & Chen, L. C. (2018). **MobileNetV2: Inverted residuals and linear bottlenecks**. *Proceedings of the IEEE conference on computer vision and pattern recognition*, 4510-4520.
-
-2. Howard, A. G., Zhu, M., Chen, B., Kalenichenko, D., Wang, W., Weyand, T., ... & Adam, H. (2017). **MobileNets: Efficient convolutional neural networks for mobile vision applications**. *arXiv preprint arXiv:1704.04861*.
-
-3. Russakovsky, O., Deng, J., Su, H., Krause, J., Satheesh, S., Ma, S., ... & Fei-Fei, L. (2015). **ImageNet large scale visual recognition challenge**. *International journal of computer vision*, 115(3), 211-252.
-
-4. TensorFlow Documentation: https://www.tensorflow.org/
-5. ONNX Documentation: https://onnx.ai/
-
----
-
-## 👨‍💻 Author
-
-**Project:** Skin Condition Classification Using Deep Learning  
-**Purpose:** Educational and Research (Dicoding Submission)  
-**License:** Educational and Non-Commercial Use
-
----
-
-## 📄 Lisensi
-
-Proyek ini dikembangkan untuk keperluan **edukasi dan penelitian**. Penggunaan untuk tujuan komersial memerlukan izin terlebih dahulu.
-
----
-
-<div align="center">
-
-**⭐ Jika proyek ini bermanfaat, berikan bintang pada repository ini! ⭐**
-
-</div>
+- `best_skin_model_stage1.h5`
+- `best_skin_model.h5`
+- `final_skin_model.h5`
+- `confusion_matrix.png`
+- `classification_report.txt`
+- `best_skin_model_320.onnx`
