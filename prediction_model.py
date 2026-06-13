@@ -20,12 +20,10 @@
 import os
 import glob
 import hashlib
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-
 import tensorflow as tf
 from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
@@ -33,7 +31,6 @@ from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLRO
 from tensorflow.keras.layers import Dense, Dropout, GlobalAveragePooling2D, Input
 from tensorflow.keras.models import Model
 from tensorflow.keras.preprocessing import image
-
 from PIL import Image, ImageOps
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
@@ -51,11 +48,11 @@ dataset_path = 'dataset'
 categories   = ['Acne', 'Blackheads', 'Dark Spots', 'Normal Skin', 'Oily Skin', 'Wrinkles']
 num_classes  = len(categories)
 
-IMG_SIZE_STAGE1   = 224
-BATCH_SIZE_STAGE1 = 16
+IMG_SIZE_STAGE1   = 448
+BATCH_SIZE_STAGE1 = 8
 
-IMG_SIZE_STAGE2   = 320
-BATCH_SIZE_STAGE2 = 8
+IMG_SIZE_STAGE2   = 512
+BATCH_SIZE_STAGE2 = 4
 
 # Ukuran & batch yang dipakai saat inferensi / ekspor (selaras dengan Stage 2)
 img_size   = IMG_SIZE_STAGE2
@@ -420,7 +417,7 @@ base_model.trainable = False   # bekukan backbone untuk Stage 1
 inputs  = Input(shape=(None, None, 3))
 x       = base_model(inputs, training=False)
 x       = GlobalAveragePooling2D()(x)
-x       = Dense(128, activation='relu')(x)
+x       = Dense(240, activation='relu')(x)
 x       = Dropout(0.3)(x)
 outputs = Dense(num_classes, activation='softmax')(x)
 model   = Model(inputs, outputs)
@@ -471,7 +468,7 @@ checkpoint_stage1 = ModelCheckpoint(
 )
 
 model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
+    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
     loss='sparse_categorical_crossentropy',
     metrics=['accuracy'],
 )
@@ -480,7 +477,7 @@ history_stage1 = model.fit(
     train_ds_s1,
     steps_per_epoch=steps_s1,
     validation_data=val_ds_s1,
-    epochs=6,
+    epochs=12,
     callbacks=[
         EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True),
         checkpoint_stage1,
@@ -504,7 +501,7 @@ for layer in base_model.layers:
         layer.trainable = False
 
 model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),   # LR lebih kecil untuk fine-tune
+    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),   # LR lebih kecil untuk fine-tune
     loss='sparse_categorical_crossentropy',
     metrics=['accuracy'],
 )
@@ -513,7 +510,7 @@ history_balanced = model.fit(
     train_ds_balanced,
     steps_per_epoch=steps_per_epoch,
     validation_data=val_ds,
-    epochs=20,
+    epochs=30,
     callbacks=[early_stopping, checkpoint, reduce_lr],
 )
 
@@ -670,7 +667,7 @@ def show_recommendations(predicted_label):
 
 # %% 15. Contoh Prediksi pada Gambar Baru
 
-img_path = "darkspot.jpg"   # ganti dengan path gambar yang ingin diuji
+img_path = "test dataset/Blackheads/9a7291a01bf4f517bde7e32bb9d16bf2.jpg"   # ganti dengan path gambar yang ingin diuji
 
 if os.path.exists(img_path):
     predicted_class_index, predicted_class_name, confidence = predict_skin_condition(

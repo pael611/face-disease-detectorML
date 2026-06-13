@@ -1,12 +1,12 @@
               precision    recall  f1-score   support
 
-        Acne     0.8571    0.9231    0.8889        39
-  Blackheads     0.9048    0.9500    0.9268        40
-  Dark Spots     0.8649    0.7805    0.8205        41
- Normal Skin     0.7500    0.7778    0.7636        27
-   Oily Skin     0.7692    0.6667    0.7143        30
-    Wrinkles     0.9643    1.0000    0.9818        54
+        Acne     0.9730    0.9000    0.9351        40
+  Blackheads     0.9286    0.9750    0.9512        40
+  Dark Spots     0.9286    0.8667    0.8966        30
+ Normal Skin     0.8333    0.9259    0.8772        27
+   Oily Skin     0.8182    0.8571    0.8372        21
+    Wrinkles     0.9811    0.9630    0.9720        54
 
-    accuracy                         0.8701       231
-   macro avg     0.8517    0.8497    0.8493       231
-weighted avg     0.8679    0.8701    0.8677       231
+    accuracy                         0.9245       212
+   macro avg     0.9105    0.9146    0.9115       212
+weighted avg     0.9273    0.9245    0.9250       212
